@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "RAG-as-a-Service MVP for Russian SMBs"
 requires-python = ">=3.11"
 
+[tool.setuptools]
+packages = ["app"]
+
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"

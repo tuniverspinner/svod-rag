@@ -66,7 +66,7 @@ async def upload_document(file: UploadFile = File(...)):
                 status="empty_document"
             )
         
-        vector_store.add_chunks(chunks)
+        await vector_store.add_chunks(chunks)
         
         return UploadResponse(
             document_id=str(uuid.uuid4()),
@@ -85,7 +85,7 @@ async def query_documents(request: QueryRequest):
             confidence=0.0
         )
     
-    context_chunks = vector_store.search(request.query, top_k=request.top_k)
+    context_chunks = await vector_store.search(request.query, top_k=request.top_k)
     
     if os.getenv("OPENAI_API_KEY"):
         result = rag_engine.generate_answer(request.query, context_chunks)
