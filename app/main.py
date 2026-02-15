@@ -29,7 +29,7 @@ async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
 app = FastAPI(
     title="Svod RAG API",
     description="RAG-as-a-Service для российских SMB",
-    version="0.1.0"
+    version="0.1.1"
 )
 
 app.add_middleware(
@@ -50,7 +50,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def root():
     html_path = STATIC_DIR / "index.html"
     if html_path.exists():
-        return HTMLResponse(content=html_path.read_text(), status_code=200)
+        return HTMLResponse(content=html_path.read_text(encoding="utf-8"), status_code=200)
     return HTMLResponse(content="<h1>Svod RAG - Demo not found</h1>", status_code=404)
 
 @app.get("/api/health")
@@ -59,7 +59,7 @@ async def health():
         "service": "Svod RAG",
         "status": "operational",
         "documents": vector_store.count(),
-        "version": "0.1.0"
+        "version": "0.1.1"
     }
 
 @app.post("/api/upload", response_model=UploadResponse)
