@@ -1,10 +1,12 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from typing import List, Optional
 import os
 import tempfile
 import uuid
+from pathlib import Path
 from dotenv import load_dotenv
 
 from app.models import QueryRequest, QueryResponse, UploadResponse, SourceChunk
@@ -13,6 +15,16 @@ from app.vector_store import VectorStore
 from app.rag_engine import RAGEngine
 
 load_dotenv()
+
+API_KEY = os.getenv("SVOD_API_KEY", "")
+API_KEY_ENABLED = bool(API_KEY)
+
+async def verify_api_key(x_api_key: str = Header(None, alias="X-API-Key")):
+    if not API_KEY_ENABLED:
+        return True
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return True
 
 app = FastAPI(
     title="Svod RAG API",
@@ -32,8 +44,17 @@ vector_store = VectorStore()
 rag_engine = RAGEngine()
 chunker = TextChunker(chunk_size=500, overlap=50)
 
-@app.get("/")
+STATIC_DIR = Path(__file__).parent / "static"
+
+@app.get("/", response_class=HTMLResponse)
 async def root():
+    html_path = STATIC_DIR / "index.html"
+    if html_path.exists():
+        return HTMLResponse(content=html_path.read_text(), status_code=200)
+    return HTMLResponse(content="<h1>Svod RAG - Demo not found</h1>", status_code=404)
+
+@app.get("/api/health")
+async def health():
     return {
         "service": "Svod RAG",
         "status": "operational",
@@ -42,7 +63,7 @@ async def root():
     }
 
 @app.post("/api/upload", response_model=UploadResponse)
-async def upload_document(file: UploadFile = File(...)):
+async def upload_document(file: UploadFile = File(...), _: bool = Depends(verify_api_key)):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
     
@@ -77,7 +98,7 @@ async def upload_document(file: UploadFile = File(...)):
         os.unlink(tmp_path)
 
 @app.post("/api/query", response_model=QueryResponse)
-async def query_documents(request: QueryRequest):
+async def query_documents(request: QueryRequest, _: bool = Depends(verify_api_key)):
     if vector_store.count() == 0:
         return QueryResponse(
             answer="Нет загруженных документов. Сначала загрузите документы через /api/upload",
@@ -108,7 +129,7 @@ async def query_documents(request: QueryRequest):
     )
 
 @app.post("/api/clear")
-async def clear_documents():
+async def clear_documents(_: bool = Depends(verify_api_key)):
     vector_store.clear()
     return {"status": "cleared", "documents": 0}
 

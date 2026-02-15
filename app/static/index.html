@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Svod RAG — Демо</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0a0a0a; color: #e5e5e5; min-height: 100vh; padding: 2rem; }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+        .tagline { color: #666; margin-bottom: 2rem; }
+        .card { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; }
+        .card h2 { font-size: 1rem; color: #888; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .upload-zone { border: 2px dashed #333; border-radius: 8px; padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .upload-zone:hover { border-color: #5c6bc0; background: #1f1f1f; }
+        .upload-zone.dragover { border-color: #5c6bc0; background: #252525; }
+        #file-input { display: none; }
+        .btn { background: #5c6bc0; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; font-size: 1rem; transition: all 0.2s; }
+        .btn:hover { background: #3f51b5; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #333; }
+        .btn-secondary:hover { background: #444; }
+        .query-input { width: 100%; background: #0a0a0a; border: 1px solid #333; border-radius: 8px; padding: 1rem; color: #e5e5e5; font-size: 1rem; resize: vertical; min-height: 100px; }
+        .query-input:focus { outline: none; border-color: #5c6bc0; }
+        .answer { background: #0a0a0a; border-radius: 8px; padding: 1rem; margin-top: 1rem; white-space: pre-wrap; line-height: 1.6; }
+        .sources { margin-top: 1rem; }
+        .source { background: #0f0f0f; border-left: 3px solid #5c6bc0; padding: 0.75rem; margin-bottom: 0.5rem; font-size: 0.875rem; }
+        .source-meta { color: #666; font-size: 0.75rem; margin-top: 0.25rem; }
+        .stats { display: flex; gap: 2rem; }
+        .stat { text-align: center; }
+        .stat-value { font-size: 1.5rem; font-weight: bold; color: #5c6bc0; }
+        .stat-label { font-size: 0.75rem; color: #666; }
+        .loading { display: none; align-items: center; gap: 0.5rem; color: #888; }
+        .loading.show { display: flex; }
+        .spinner { width: 16px; height: 16px; border: 2px solid #333; border-top-color: #5c6bc0; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .file-list { margin-top: 1rem; }
+        .file-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #222; }
+        .files-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Svod RAG</h1>
+        <p class="tagline">RAG-as-a-Service для российских SMB</p>
+        
+        <div class="card">
+            <h2>Статистика</h2>
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value" id="chunk-count">0</div>
+                    <div class="stat-label">Фрагментов</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">v0.1</div>
+                    <div class="stat-label">Версия</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="files-header">
+                <h2>Документы</h2>
+                <button class="btn btn-secondary" onclick="clearDocuments()">Очистить</button>
+            </div>
+            <div class="upload-zone" id="upload-zone">
+                <p>Перетащите файлы сюда или нажмите для выбора</p>
+                <p style="color: #666; font-size: 0.875rem; margin-top: 0.5rem;">PDF, TXT, MD</p>
+                <input type="file" id="file-input" multiple accept=".pdf,.txt,.md">
+            </div>
+            <div class="file-list" id="file-list"></div>
+        </div>
+
+        <div class="card">
+            <h2>Запрос</h2>
+            <textarea class="query-input" id="query-input" placeholder="Задайте вопрос по загруженным документам..."></textarea>
+            <div style="display: flex; gap: 1rem; margin-top: 1rem; align-items: center;">
+                <button class="btn" onclick="sendQuery()" id="query-btn">Отправить</button>
+                <div class="loading" id="loading">
+                    <div class="spinner"></div>
+                    <span>Обработка...</span>
+                </div>
+            </div>
+            <div id="answer-container" style="display: none;">
+                <div class="answer" id="answer"></div>
+                <div class="sources" id="sources"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        
+        async function loadStats() {
+            try {
+                const res = await fetch(`${API_BASE}/api/stats`);
+                const data = await res.json();
+                document.getElementById('chunk-count').textContent = data.total_chunks;
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+        
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-input');
+        
+        uploadZone.addEventListener('click', () => fileInput.click());
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('dragover');
+        });
+        uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+        fileInput.addEventListener('change', () => handleFiles(fileInput.files));
+        
+        async function handleFiles(files) {
+            for (const file of files) {
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const res = await fetch(`${API_BASE}/api/upload`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const data = await res.json();
+                    addFileToList(file.name, data.chunks);
+                    loadStats();
+                } catch (e) {
+                    console.error('Upload failed:', e);
+                }
+            }
+        }
+        
+        function addFileToList(name, chunks) {
+            const list = document.getElementById('file-list');
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.innerHTML = `<span>${name}</span><span style="color: #5c6bc0">${chunks} фрагментов</span>`;
+            list.appendChild(item);
+        }
+        
+        async function sendQuery() {
+            const query = document.getElementById('query-input').value.trim();
+            if (!query) return;
+            
+            const btn = document.getElementById('query-btn');
+            const loading = document.getElementById('loading');
+            btn.disabled = true;
+            loading.classList.add('show');
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/query`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query, top_k: 5 })
+                });
+                const data = await res.json();
+                
+                document.getElementById('answer').textContent = data.answer;
+                
+                const sourcesContainer = document.getElementById('sources');
+                sourcesContainer.innerHTML = '';
+                data.sources.forEach(s => {
+                    const div = document.createElement('div');
+                    div.className = 'source';
+                    div.innerHTML = `${s.content}<div class="source-meta">${s.source} • score: ${s.score}</div>`;
+                    sourcesContainer.appendChild(div);
+                });
+                
+                document.getElementById('answer-container').style.display = 'block';
+            } catch (e) {
+                console.error('Query failed:', e);
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('show');
+            }
+        }
+        
+        async function clearDocuments() {
+            await fetch(`${API_BASE}/api/clear`, { method: 'POST' });
+            document.getElementById('file-list').innerHTML = '';
+            document.getElementById('answer-container').style.display = 'none';
+            loadStats();
+        }
+        
+        document.getElementById('query-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && e.ctrlKey) sendQuery();
+        });
+        
+        loadStats();
+    </script>
+</body>
+</html>
